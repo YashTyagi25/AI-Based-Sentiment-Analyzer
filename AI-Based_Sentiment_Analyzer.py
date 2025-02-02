@@ -1,46 +1,72 @@
 #############################################
 # Sentiment Analysis Project
-# Author: Siddharth Sharma
-# Date: January 14, 2025
-# Description: This project leverages a pre-trained
-# transformer model from the Hugging Face library to
-# perform sentiment analysis on text data. It uses the
-# "nlptown/bert-base-multilingual-uncased-sentiment"
-# model to classify text as positive, negative, or neutral.
+# Author: Yash Tyagi
+# Description: This project uses a pre-trained LSTM model from 
+# TensorFlow Hub to perform sentiment analysis on text data. 
+# It classifies text as positive, negative, or neutral.
 #############################################
 
 # Import required libraries
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers import pipeline
+import tensorflow_hub as hub
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 
-# Step 1: Load Pre-trained Model and Tokenizer
-# Description: This step loads a pre-trained sentiment analysis model
-# and its associated tokenizer from the Hugging Face library.
-MODEL_NAME = "nlptown/bert-base-multilingual-uncased-sentiment"  # Model name
+# Download NLTK data
+nltk.download('punkt')
+nltk.download('stopwords')
 
-# Load tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+# Step 1: Load Pre-trained LSTM Sentiment Model
+# Using a pretrained model from TensorFlow Hub
+MODEL_URL = "https://tfhub.dev/google/tf2-preview/gnews-swivel-20dim/1"
+model = hub.load(MODEL_URL)
 
-# Step 2: Create a Sentiment Analysis Pipeline
-# Description: Initialize a sentiment analysis pipeline
-# using the loaded model and tokenizer.
-sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
-
-# Step 3: Analyze Sentiments
-def analyze_sentiments(texts):
+# Step 2: Define a function to preprocess text data
+def preprocess_text(text):
     """
-    Analyze sentiments of a list of texts.
+    Preprocess text by removing stopwords and tokenizing.
 
-    :param texts: List of text strings
-    :return: List of sentiment results
+    :param text: Input text
+    :return: Cleaned text as a list of words
     """
-    return sentiment_pipeline(texts)
+    stop_words = set(stopwords.words('english'))
+    words = word_tokenize(text.lower())  # Convert to lowercase & tokenize
+    filtered_words = [word for word in words if word.isalnum() and word not in stop_words]
+    return " ".join(filtered_words)  # Return as string for the model
 
-# Step 4: Test the System with Sample Data
-# Description: Test the sentiment analysis system with sample inputs.
+# Step 3: Define function for sentiment analysis
+def analyze_sentiment(texts):
+    """
+    Predict sentiments of input text(s) using the pre-trained LSTM model.
+
+    :param texts: List of input text strings
+    :return: Sentiment predictions (positive, negative, neutral)
+    """
+    processed_texts = [preprocess_text(text) for text in texts]  # Preprocess text
+    embeddings = model(processed_texts).numpy()  # Convert text to embeddings
+
+    # Simple sentiment classification based on cosine similarity (example logic)
+    positive_threshold = 0.5  # Example threshold for positive sentiment
+    negative_threshold = -0.5  # Example threshold for negative sentiment
+
+    sentiments = []
+    for embed in embeddings:
+        score = np.mean(embed)  # Taking the mean of embedding values
+        if score > positive_threshold:
+            sentiments.append("positive")
+        elif score < negative_threshold:
+            sentiments.append("negative")
+        else:
+            sentiments.append("neutral")
+    
+    return sentiments
+
+# Step 4: Test with sample data
 sample_texts = [
     "I absolutely love this product! It's fantastic.",
     "The movie was terrible and I hated it.",
@@ -49,42 +75,27 @@ sample_texts = [
     "Terrible customer support ruined my day!"
 ]
 
-# Analyze sentiments for sample data
-results = analyze_sentiments(sample_texts)
+# Predict sentiments
+results = analyze_sentiment(sample_texts)
 
-# Display Results
+# Display results
 print("\nSample Sentiment Analysis Results:")
-for text, result in zip(sample_texts, results):
+for text, sentiment in zip(sample_texts, results):
     print(f"Text: {text}")
-    print(f"Sentiment: {result['label']}, Confidence: {result['score']:.2f}")
+    print(f"Predicted Sentiment: {sentiment}")
     print("-" * 40)
 
-# Step 5: Advanced Testing and Evaluation
-# Description: Evaluate the sentiment analysis model using test data.
-def evaluate_model(test_texts, test_labels):
-    """
-    Evaluate the sentiment model using test data.
+# Step 5: Load Dataset and Evaluate the Model
+# Load dataset (CSV file with 'text' and 'label' columns)
+df = pd.read_csv("sentiment_dataset.csv")  # Ensure dataset file is available
 
-    :param test_texts: List of text strings (test dataset)
-    :param test_labels: List of true labels
-    """
-    predictions = analyze_sentiments(test_texts)
-    predicted_labels = [pred["label"] for pred in predictions]
+# Preprocess text and split dataset
+df["processed_text"] = df["text"].apply(preprocess_text)
+X_train, X_test, y_train, y_test = train_test_split(df["processed_text"], df["label"], test_size=0.2, random_state=42)
 
-    print("\nClassification Report:")
-    print(classification_report(test_labels, predicted_labels, digits=4))
-
-# Example test data for evaluation
-test_texts = [
-    "This is the best day of my life!",
-    "I am very disappointed with the service.",
-    "It was an average experience, nothing special.",
-    "Fantastic product! Highly recommend it.",
-    "The experience was absolutely horrible!"
-]
-
-# True labels for the test data (adjust to match the model's label set)
-test_labels = ["positive", "negative", "neutral", "positive", "negative"]
+# Predict sentiments for the test dataset
+predicted_labels = analyze_sentiment(X_test.tolist())
 
 # Evaluate the model
-evaluate_model(test_texts, test_labels)
+print("\nClassification Report:")
+print(classification_report(y_test, predicted_labels, digits=4))
